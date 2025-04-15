@@ -2,23 +2,31 @@
 // Written by: Sreela Kodali, kodali@stanford.edu
 #include "nrf52840DeepPressureWearable.h"
 
-nrf52840DeepPressureWearable::nrf52840DeepPressureWearable() {
-	LSM6DS3 myIMU(I2C_MODE, 0x6A);
-	previousTime = micros();
+
+nrf52840DeepPressureWearable::nrf52840DeepPressureWearable(bool serialStatus) {
+  LSM6DS3 myIMU(I2C_MODE, 0x6A);
+  previousTime = micros();
   pinMode(led_OUT, OUTPUT); // initialize IO
 
   for (int i=0; i < N_ACT; i++) { // initialize Actuators
-    actuatorArr[i].attach(position_OUTArr[i]); // attach servo 
+    actuatorArr[i].attach(position_OUTArr[i]); // attach servo
+    position_CommandArr[i] = POSITION_MIN;
     actuatorArr[i].write(POSITION_MIN); // actuonix
   }
+
+  serialON = serialStatus;
+  bleON = !(serialON);
+  t_lastWrite = millis();
 }
 
 void nrf52840DeepPressureWearable::initializeIMU() {
-	if (myIMU.begin() != 0) Serial.println("IMU error");
+  if (myIMU.begin() != 0) {
+    if (serialON) Serial.println("IMU error");
+  } 
 }
 
 void nrf52840DeepPressureWearable::calibrateSensors() {
-	float sumAccelX = 0, sumAccelY = 0, sumAccelZ = 0;
+  float sumAccelX = 0, sumAccelY = 0, sumAccelZ = 0;
   float sumGyroX = 0, sumGyroY = 0, sumGyroZ = 0;
 
   for (int i = 0; i < calibrationSamples; i++) {
@@ -40,7 +48,7 @@ void nrf52840DeepPressureWearable::calibrateSensors() {
 }
 
 void nrf52840DeepPressureWearable::readAllAccelGyro() {
-	accelX = myIMU.readFloatAccelX() - accelXBias;
+  accelX = myIMU.readFloatAccelX() - accelXBias;
   accelY = myIMU.readFloatAccelY() - accelYBias;
   accelZ = myIMU.readFloatAccelZ() - accelZBias;
   gyroX = myIMU.readFloatGyroX() - gyroXBias;
@@ -49,7 +57,7 @@ void nrf52840DeepPressureWearable::readAllAccelGyro() {
 }
 
 float nrf52840DeepPressureWearable::computeRoll() {
-	return atan2(accelY, accelZ) * 180.0 / M_PI;
+  return atan2(accelY, accelZ) * 180.0 / M_PI;
 }
 float nrf52840DeepPressureWearable::computePitch() {
   return atan2(-accelX, sqrt(accelY * accelY + accelZ * accelZ)) * 180.0 / M_PI;
@@ -64,7 +72,7 @@ float nrf52840DeepPressureWearable::complementaryFilter(float v, float dt, bool 
 }
 
 void nrf52840DeepPressureWearable::measureRollPitch(bool p) {
-	  unsigned long currentTime = micros();
+    unsigned long currentTime = micros();
   float deltaTime = (currentTime - previousTime) / 1000000.0;
   previousTime = currentTime;
 
@@ -75,9 +83,11 @@ void nrf52840DeepPressureWearable::measureRollPitch(bool p) {
   complementaryPitch = complementaryFilter(pitch, deltaTime, 0);
 
   if (p) {
-    Serial.print(complementaryRoll, 2);
-    Serial.print(",");
-    Serial.println(complementaryPitch, 2);
+    if (serialON) {
+      Serial.print(complementaryRoll, 2);
+      Serial.print(",");
+      Serial.println(complementaryPitch, 2);
+    }
   }
   delay(T_CYCLE);
 }
@@ -95,10 +105,49 @@ void nrf52840DeepPressureWearable::sweep(int idx, int t_d) {
 
   for (int i = POSITION_MIN; i < POSITION_MAX; i++) {
     actuatorArr[idx].write(i);
-    Serial.println(i);
+    if (serialON) Serial.println(i);
     delay(t_d);
   }
 
+}
+
+void nrf52840DeepPressureWearable::writeOutData(int l, unsigned long t, int *c, int *m, short *d) {
+  int i;
+  String dataString = "";
+  if (bleON || serialON) {
+    dataString = (String(t) + "," + String(complementaryRoll) + "," + String(complementaryPitch));
+    for (i=0; i < l; ++i) dataString += ( "," + String(c[i]) + "," + String(m[i]) + "," + String(d[i]));
+    // if (bleON)
+    if (serialON) Serial.println(dataString);
+  }
+}
+
+void nrf52840DeepPressureWearable::runtime(void (*mapping)(int)) {
+    short data[N_ACT];
+    int position_MeasuredArr[N_ACT];
+    unsigned long myTime;
+    int i;
+
+    myTime = millis(); // 1) time for beginning of the loop
+    measureRollPitch(0);// 2) measure latest arm angles
+    mapping(int(complementaryPitch)); // 3) map
+    for (i=0; i < N_ACT; ++i) { // 4) bound commands
+        if(position_CommandArr[i] > POSITION_MAX) position_CommandArr[i] = POSITION_MAX;
+        else if(position_CommandArr[i] < POSITION_MIN) position_CommandArr[i] = POSITION_MIN;
+     }
+
+    // 5) Send command to actuator and measure actuator position
+    for (i=0; i < N_ACT; ++i) actuatorArr[i].write(position_CommandArr[i]);
+
+    // 6) every T_SAMPLING, read force data, measured position, and print
+    if ((myTime - t_lastWrite) > T_SAMPLING) {
+      for (i=0; i < N_ACT; ++i) data[i] = readDataFromSensor(I2C_ADDRArr[i]);
+      for (i=0; i < N_ACT; ++i) position_MeasuredArr[i] = analogRead(position_INArr[i]);
+      writeOutData(N_ACT, myTime, position_CommandArr, position_MeasuredArr, data); // FIX: writeoutData needs to include roll, pitch
+      t_lastWrite = millis();
+    }
+
+    if (T_CYCLE > 0) delay(T_CYCLE);    
 }
 
 short nrf52840DeepPressureWearable::readDataFromSensor(short address) {

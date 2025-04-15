@@ -7,14 +7,16 @@
 
 #include <nrf52840DeepPressureWearable.h>
 
-
-
-nrf52840DeepPressureWearable device;
+const bool serialON = true;
+nrf52840DeepPressureWearable device(serialON);
 
 
 void setup() {
-  Serial.begin(115200);
-  while (!Serial);
+  
+  if (serialON) {
+    Serial.begin(115200);
+    while (!Serial);
+  }
   device.initializeIMU();
   device.calibrateSensors();
   //device.blinkN(10, 1000);
@@ -25,3 +27,5 @@ void setup() {
 void loop() {
   device.measureRollPitch(1);
 }
+
+// ------------------------------- SUPPORT FUNCTIONS --------------------------------//
