@@ -60,7 +60,8 @@ float nrf52840DeepPressureWearable::computeRoll() {
   return atan2(accelY, accelZ) * 180.0 / M_PI;
 }
 float nrf52840DeepPressureWearable::computePitch() {
-  return atan2(-accelX, sqrt(accelY * accelY + accelZ * accelZ)) * 180.0 / M_PI;
+  return (90 + (atan2(accelZ, sqrt(accelY * accelY + accelX * accelX)) * 180.0 / M_PI));
+  //return atan2(-accelX, sqrt(accelY * accelY + accelZ * accelZ)) * 180.0 / M_PI;
 }
 float nrf52840DeepPressureWearable::complementaryFilter(float v, float dt, bool isRoll) {
   float complementaryValue;
