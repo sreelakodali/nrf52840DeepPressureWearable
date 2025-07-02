@@ -2,21 +2,32 @@
 // Written by: Sreela Kodali, kodali@stanford.edu
 #include "nrf52840DeepPressureWearable.h"
 
-
-nrf52840DeepPressureWearable::nrf52840DeepPressureWearable(bool serialStatus) {
+nrf52840DeepPressureWearable::nrf52840DeepPressureWearable(bool serialStatus): avgFilterPitch(WINDOW), avgFilterRoll(WINDOW) {
   LSM6DS3 myIMU(I2C_MODE, 0x6A);
   previousTime = micros();
   pinMode(led_OUT, OUTPUT); // initialize IO
+  pinMode(led_R, OUTPUT); // initialize IO
+
+  // if not(serialStatus) {
+  //   BLEService prosthesisService("1840");  // Bluetooth® Low Energy, motorized device
+  //   BLEFloatCharacteristic prosthesisCharacteristic("fff1", BLERead | BLEBroadcast);
+
+  //   prosthesisService.addCharacteristic(prosthesisCharacteristic);
+  //   BLE.addService(prosthesisService);
+  // }
 
   for (int i=0; i < N_ACT; i++) { // initialize Actuators
     actuatorArr[i].attach(position_OUTArr[i]); // attach servo
     position_CommandArr[i] = POSITION_MIN;
     actuatorArr[i].write(POSITION_MIN); // actuonix
   }
-
+  avgFilterPitch.begin();
+  avgFilterRoll.begin();
   serialON = serialStatus;
   bleON = !(serialON);
   t_lastWrite = millis();
+  digitalWrite(led_OUT, LOW); // turn LED on
+
 }
 
 void nrf52840DeepPressureWearable::initializeIMU() {
@@ -28,7 +39,8 @@ void nrf52840DeepPressureWearable::initializeIMU() {
 void nrf52840DeepPressureWearable::calibrateSensors() {
   float sumAccelX = 0, sumAccelY = 0, sumAccelZ = 0;
   float sumGyroX = 0, sumGyroY = 0, sumGyroZ = 0;
-
+  digitalWrite(led_OUT, HIGH);
+  digitalWrite(led_R, LOW);
   for (int i = 0; i < calibrationSamples; i++) {
     sumAccelX += (myIMU).readFloatAccelX();
     sumAccelY += (myIMU).readFloatAccelY();
@@ -38,6 +50,9 @@ void nrf52840DeepPressureWearable::calibrateSensors() {
     sumGyroZ += (myIMU).readFloatGyroZ();
     delayMicroseconds(100);
   }
+
+  digitalWrite(led_R, HIGH);
+  digitalWrite(led_OUT, LOW);
 
   accelXBias = sumAccelX / calibrationSamples;
   accelYBias = sumAccelY / calibrationSamples;
@@ -57,11 +72,17 @@ void nrf52840DeepPressureWearable::readAllAccelGyro() {
 }
 
 float nrf52840DeepPressureWearable::computeRoll() {
-  return atan2(accelY, accelZ) * 180.0 / M_PI;
+  float value;
+  value= atan2(sqrt(accelY * accelY), sqrt(accelX * accelX + accelZ * accelZ)) * 180.0 / M_PI;
+  //value = -atan2(accelY, sqrt(accelX * accelX + accelZ * accelZ)) * 180.0 / M_PI;
+  return value;
 }
 float nrf52840DeepPressureWearable::computePitch() {
-  return (90 + (atan2(accelZ, sqrt(accelY * accelY + accelX * accelX)) * 180.0 / M_PI));
-  //return atan2(-accelX, sqrt(accelY * accelY + accelZ * accelZ)) * 180.0 / M_PI;
+   // float trueZ = accelZ/ 
+  return 180-atan2(-accelX, sqrt(accelY * accelY + accelZ * accelZ)) * 180.0 / M_PI;
+  //  return (90 + (atan2(accelZ, sqrt(accelX * accelX)) * 180.0 / M_PI));
+  //return (90 + (atan2(accelZ, sqrt(accelY * accelY + accelX * accelX)) * 180.0 / M_PI));
+
 }
 float nrf52840DeepPressureWearable::complementaryFilter(float v, float dt, bool isRoll) {
   float complementaryValue;
@@ -80,8 +101,10 @@ void nrf52840DeepPressureWearable::measureRollPitch(bool p) {
   readAllAccelGyro();
   roll = computeRoll();
   pitch = computePitch();
-  complementaryRoll = complementaryFilter(roll, deltaTime, 1);
-  complementaryPitch = complementaryFilter(pitch, deltaTime, 0);
+  //float((*avgFilterR).reading(roll));
+  //float((*avgFilterP).reading(pitch));
+  complementaryRoll = float(avgFilterRoll.reading(roll));//complementaryFilter(roll, deltaTime, 1);
+  complementaryPitch = float(avgFilterPitch.reading(pitch));//pitch;//complementaryFilter(pitch, deltaTime, 0);
 
   if (p) {
     if (serialON) {
@@ -90,14 +113,14 @@ void nrf52840DeepPressureWearable::measureRollPitch(bool p) {
       Serial.println(complementaryPitch, 2);
     }
   }
-  delay(T_CYCLE);
+  //delay(T_CYCLE);
 }
 
 void nrf52840DeepPressureWearable::blinkN(int n, int t_d) {
   for(int i=0; i < n; i++) {
-      digitalWrite(led_OUT, LOW);
-      delay(t_d/2);
       digitalWrite(led_OUT, HIGH);
+      delay(t_d/2);
+      digitalWrite(led_OUT, LOW);
       delay(t_d/2);
   }
 }
@@ -123,7 +146,7 @@ void nrf52840DeepPressureWearable::writeOutData(int l, unsigned long t, int *c, 
   }
 }
 
-void nrf52840DeepPressureWearable::runtime(void (*mapping)(int)) {
+void nrf52840DeepPressureWearable::runtime(void (*mapping)(int, int)) {
     short data[N_ACT];
     int position_MeasuredArr[N_ACT];
     unsigned long myTime;
@@ -131,7 +154,7 @@ void nrf52840DeepPressureWearable::runtime(void (*mapping)(int)) {
 
     myTime = millis(); // 1) time for beginning of the loop
     measureRollPitch(0);// 2) measure latest arm angles
-    mapping(int(complementaryPitch)); // 3) map
+    mapping(int(complementaryPitch), int(complementaryRoll)); // 3) map
     for (i=0; i < N_ACT; ++i) { // 4) bound commands
         if(position_CommandArr[i] > POSITION_MAX) position_CommandArr[i] = POSITION_MAX;
         else if(position_CommandArr[i] < POSITION_MIN) position_CommandArr[i] = POSITION_MIN;

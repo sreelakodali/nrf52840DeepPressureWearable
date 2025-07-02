@@ -24,7 +24,7 @@ void setup() {
 
 void loop() {
 
-  byte i2cAddress = 0x04; // Peripheral address (SingleTact), default 0x04
+  byte i2cAddress = 0x06; // Peripheral address (SingleTact), default 0x04
   short data = device.readDataFromSensor(i2cAddress);
   if (serialON) Serial.println(data);  
   delay(15); // Change this if you are getting values too quickly 

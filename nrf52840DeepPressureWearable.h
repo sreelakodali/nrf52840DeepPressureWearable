@@ -6,10 +6,13 @@
 #include <Wire.h>
 #include "LSM6DS3.h"
 #include <math.h>
+#include "movingAvg.h"
+#include <ArduinoBLE.h>
+
 
 # define N_ACT 2
-# define T_SAMPLING 100 // milliseconds
-
+# define T_SAMPLING 10 // milliseconds
+# define WINDOW 10
 
 // actuonix command limits
 typedef enum {
@@ -28,13 +31,18 @@ class nrf52840DeepPressureWearable {
 	  	void blinkN(int n, int t_d);
 	  	void sweep(int idx, int t_d);
 	  	short readDataFromSensor(short address);
-	  	void runtime(void (*mapping)(int));
+	  	void runtime(void (*mapping)(int, int));
 
 	  	Servo actuatorArr[N_ACT];
 	  	int position_CommandArr[N_ACT];
 
 	private:
+	  // BLEService armPositionService("1840");
+	  // BLEFloatCharacteristic armAngles("2763", BLERead | BLENotify);
+
 	  LSM6DS3 myIMU;
+	  movingAvg avgFilterPitch;
+	  movingAvg avgFilterRoll;
 	  float accelX, accelY, accelZ;
 	  float gyroX, gyroY, gyroZ;
 	  float roll, pitch;
@@ -49,12 +57,17 @@ class nrf52840DeepPressureWearable {
 	  unsigned long t_lastWrite;
 
 	  const  byte I2C_ADDRArr[2] = {0x06, 0x08};
-	  const float alpha = 0.98;  // Complementary filter coefficient
-	  const int calibrationSamples = 1000;
 	  const int T_CYCLE = 15;
-	  const int  led_OUT = 13;
+	  const int  led_OUT = 13; // 13 green 12 red 14 blue
+	  const int  led_R = 12;
+	  const int led_B = 14;
 	  const  int position_INArr[2] = {A2, A3}; // analog adc pins
 	  const int position_OUTArr[2] = {A0, A1}; // pwm output
+
+	  //filtering
+	  const float alpha = 0.98;  // Complementary filter coefficient
+	  const int calibrationSamples = 1000;
+
 
 
 	  
