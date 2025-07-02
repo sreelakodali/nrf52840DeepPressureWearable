@@ -1,11 +1,12 @@
 /*
  * IMU Example
  * Using nrf52840DeepPressureWearable library
- * Written by Aarya Sumuk (asumuk@stanford.edu) and Sreela Kodali (kodali@stanford.edu) 
+ * Written by Sreela Kodali (kodali@stanford.edu) and Aarya Sumuk (asumuk@stanford.edu)
  * 
  * */
 
 #include <nrf52840DeepPressureWearable.h>
+
 
 const bool serialON = true;
 nrf52840DeepPressureWearable device(serialON);
@@ -20,12 +21,13 @@ void setup() {
   device.initializeIMU();
   device.calibrateSensors();
   //device.blinkN(10, 1000);
-  Serial.println("Device initialized.");
+  if (serialON) Serial.println("Device initialized.");
     
 }
 
 void loop() {
   device.measureRollPitch(1);
+  delay(15);
 }
 
 // ------------------------------- SUPPORT FUNCTIONS --------------------------------//

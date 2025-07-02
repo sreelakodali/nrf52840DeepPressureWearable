@@ -8,19 +8,23 @@
  * */
 
 #include <nrf52840DeepPressureWearable.h>
-const bool serialON = true;
+#include <ArduinoBLE.h>
+
+const bool serialON = false;
 nrf52840DeepPressureWearable device(serialON);
 
 void setup() {
   Wire.begin();
 
   if (serialON) {
-    Serial.begin(9600);
+    Serial.begin(115200);
     while (!Serial);
+  } else {
+    BLE.begin();
   }
+  device.blinkN(10, 500);
   device.initializeIMU();
   device.calibrateSensors();
-  device.blinkN(10, 500);
   if (serialON) Serial.println("Device initialized.");
 }
 
@@ -32,9 +36,11 @@ void loop() {
 
 
 // Set position_CommandArr with given arm angle
-void mapping(int angle) {
-  int x;   
-  x = map(angle, 0, 90, POSITION_MIN, POSITION_MAX);
+void mapping(int flex, int rot) {
+  int x;
+  int y;   
+  x = map(flex, 180, 90, POSITION_MIN, POSITION_MAX*0.9);
+  y = map(flex, 90, 180, POSITION_MIN, POSITION_MAX*0.9);
   device.position_CommandArr[0] = x;
-  device.position_CommandArr[1] = x;
+  device.position_CommandArr[1] = y;
 }
